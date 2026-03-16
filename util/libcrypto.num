@@ -5487,6 +5487,11 @@ i2d_IPAddressFamily                     ?	4_0_0	EXIST::FUNCTION:RFC3779
 IPAddressFamily_free                    ?	4_0_0	EXIST::FUNCTION:RFC3779
 IPAddressFamily_new                     ?	4_0_0	EXIST::FUNCTION:RFC3779
 IPAddressFamily_it                      ?	4_0_0	EXIST::FUNCTION:RFC3779
+d2i_IPAddrBlocks                        ?	4_0_0	EXIST::FUNCTION:RFC3779
+i2d_IPAddrBlocks                        ?	4_0_0	EXIST::FUNCTION:RFC3779
+IPAddrBlocks_free                       ?	4_0_0	EXIST::FUNCTION:RFC3779
+IPAddrBlocks_new                        ?	4_0_0	EXIST::FUNCTION:RFC3779
+IPAddrBlocks_it                         ?	4_0_0	EXIST::FUNCTION:RFC3779
 X509v3_asid_add_inherit                 ?	4_0_0	EXIST::FUNCTION:RFC3779
 X509v3_asid_add_id_or_range             ?	4_0_0	EXIST::FUNCTION:RFC3779
 X509v3_addr_add_inherit                 ?	4_0_0	EXIST::FUNCTION:RFC3779
