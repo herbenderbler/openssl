@@ -10,6 +10,10 @@
 #ifndef OSSL_APPS_H
 #define OSSL_APPS_H
 
+#if (defined(__linux__) || defined(__sun__) || defined(__hpux)) && !defined(_FILE_OFFSET_BITS)
+#define _FILE_OFFSET_BITS 64
+#endif
+
 #include "internal/common.h" /* for HAS_PREFIX */
 #include "internal/nelem.h"
 #include <assert.h>
@@ -22,6 +26,10 @@
 #endif
 
 #include <openssl/e_os2.h>
+#if defined(OPENSSL_SYS_UNIX) && defined(_POSIX_MAPPED_FILES) && _POSIX_MAPPED_FILES > 0
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 #include <openssl/types.h>
 #include <openssl/bio.h>
 #include <openssl/x509.h>
@@ -232,6 +240,23 @@ void app_bail_out(char *fmt, ...);
  *         on failure, calls app_bail_out() to terminate the program.
  */
 void *app_malloc(size_t sz, const char *what);
+
+/*
+ * Map an entire regular file read-only. The file descriptor is closed before
+ * returning. On success the caller must munmap(*ptr, *mapped_len).
+ * expect_len: if not (size_t)-1, the on-disk size must match exactly.
+ * Returns APP_MMAP_OK, APP_MMAP_EMPTY, or a negative APP_MMAP_ERR_* value.
+ */
+#define APP_MMAP_OK 1
+#define APP_MMAP_EMPTY 2
+#define APP_MMAP_ERR_STAT (-1)
+#define APP_MMAP_ERR_OPEN (-2)
+#define APP_MMAP_ERR_MAP (-3)
+#define APP_MMAP_ERR_SIZE (-4)
+#if defined(OPENSSL_SYS_UNIX) && defined(_POSIX_MAPPED_FILES) && _POSIX_MAPPED_FILES > 0
+int app_mmap_readonly_file(const char *path, size_t expect_len,
+    unsigned char **ptr, size_t *mapped_len);
+#endif
 /**
  * OPENSSL_malloc_array() wrapper that bails out with a meaningful message
  * on failure.

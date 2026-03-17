@@ -17,7 +17,7 @@ use File::Compare qw/compare_text compare/;
 
 setup("test_pkeyutl");
 
-plan tests => 27;
+plan tests => 28;
 
 # For the tests below we use the cert itself as the TBS file
 
@@ -214,8 +214,32 @@ SKIP: {
 }
 
 SKIP: {
-    skip "EdDSA is not supported by this OpenSSL build", 4
+    skip "EdDSA is not supported by this OpenSSL build", 5
         if disabled("ecx");
+
+    subtest "pkeyutl -rawin oneshot with file input (mmap or buffer path)" => sub {
+        my $data = srctop_file("test", "data.bin");
+        my $ed25519_key = srctop_file("test", "tested25519.pem");
+        my $ed25519_pub = srctop_file("test", "tested25519pub.pem");
+        my $ed448_key = srctop_file("test", "tested448.pem");
+        my $ed448_pub = srctop_file("test", "tested448pub.pem");
+
+        plan tests => 4;
+
+        # -in <file> for oneshot: uses mmap on Unix when supported, else buffer+BIO_read
+        ok(run(app(['openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', $ed25519_key,
+                    '-in', $data, '-out', 'rawin_file_ed25519.sig'])),
+           "Ed25519 -rawin sign from file");
+        ok(run(app(['openssl', 'pkeyutl', '-verify', '-rawin', '-pubin', '-inkey', $ed25519_pub,
+                    '-sigfile', 'rawin_file_ed25519.sig', '-in', $data])),
+           "Ed25519 -rawin verify from file");
+        ok(run(app(['openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', $ed448_key,
+                    '-in', $data, '-out', 'rawin_file_ed448.sig'])),
+           "Ed448 -rawin sign from file");
+        ok(run(app(['openssl', 'pkeyutl', '-verify', '-rawin', '-pubin', '-inkey', $ed448_pub,
+                    '-sigfile', 'rawin_file_ed448.sig', '-in', $data])),
+           "Ed448 -rawin verify from file");
+    };
 
     subtest "Ed2559 CLI signature generation and verification" => sub {
         tsignverify("Ed25519",

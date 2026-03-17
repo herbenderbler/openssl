@@ -26,7 +26,7 @@
 
 static int do_fp_oneshot_sign(BIO *out, EVP_MD_CTX *ctx, BIO *in, int sep, int binout,
     EVP_PKEY *key, unsigned char *sigin, int siglen,
-    const char *sig_name, const char *file);
+    const char *sig_name, const char *file, int try_mmap);
 int do_fp(BIO *out, unsigned char *buf, BIO *bp, int sep, int binout, int xoflen,
     EVP_PKEY *key, unsigned char *sigin, int siglen,
     const char *sig_name, const char *md_name,
@@ -482,7 +482,7 @@ int dgst_main(int argc, char **argv)
         BIO_set_fp(in, stdin, BIO_NOCLOSE);
         if (oneshot_sign)
             ret = do_fp_oneshot_sign(out, signctx, in, separator, out_bin,
-                sigkey, sigbuf, siglen, NULL, "stdin");
+                sigkey, sigbuf, siglen, NULL, "stdin", 0);
         else
             ret = do_fp(out, buf, inp, separator, out_bin, xoflen,
                 sigkey, sigbuf, siglen, NULL, md_name, "stdin");
@@ -503,7 +503,7 @@ int dgst_main(int argc, char **argv)
                 if (oneshot_sign) {
                     if (do_fp_oneshot_sign(out, signctx, in, separator, out_bin,
                             sigkey, sigbuf, siglen, sig_name,
-                            argv[i]))
+                            argv[i], 1))
                         ret = EXIT_FAILURE;
                 } else {
                     if (do_fp(out, buf, inp, separator, out_bin, xoflen,
@@ -730,7 +730,7 @@ end:
  */
 static int do_fp_oneshot_sign(BIO *out, EVP_MD_CTX *ctx, BIO *in, int sep, int binout,
     EVP_PKEY *key, unsigned char *sigin, int siglen,
-    const char *sig_name, const char *file)
+    const char *sig_name, const char *file, int try_mmap)
 {
     int res, ret = EXIT_FAILURE;
     size_t len = 0;
@@ -738,10 +738,49 @@ static int do_fp_oneshot_sign(BIO *out, EVP_MD_CTX *ctx, BIO *in, int sep, int b
     size_t maxlen = 16 * 1024 * 1024;
     uint8_t *buf = NULL, *sig = NULL;
 
-    if (!bio_to_mem(&buf, &buflen, maxlen, in)) {
-        BIO_printf(bio_err, "Read error in %s\n", file);
-        return ret;
+#if defined(OPENSSL_SYS_UNIX) && defined(_POSIX_MAPPED_FILES) && _POSIX_MAPPED_FILES > 0
+    if (try_mmap) {
+        unsigned char *mapped = NULL;
+        size_t mapped_len = 0;
+        int mm = app_mmap_readonly_file(file, (size_t)-1, &mapped, &mapped_len);
+
+        if (mm < 0) {
+            if (mm == APP_MMAP_ERR_OPEN)
+                BIO_puts(bio_err, "Error opening file for memory mapping\n");
+            else
+                BIO_puts(bio_err, "Error: failed to use memory-mapped file\n");
+            return EXIT_FAILURE;
+        }
+        if (mm == APP_MMAP_OK) {
+            if (sigin != NULL) {
+                res = EVP_DigestVerify(ctx, sigin, siglen, mapped, mapped_len);
+                print_verify_result(out, res);
+                if (res > 0)
+                    ret = EXIT_SUCCESS;
+            } else if (key != NULL) {
+                if (!EVP_DigestSign(ctx, NULL, &len, mapped, mapped_len)) {
+                    BIO_puts(bio_err, "Error getting maximum length of signed data\n");
+                } else {
+                    sig = app_malloc(len, "Signature buffer");
+                    if (!EVP_DigestSign(ctx, sig, &len, mapped, mapped_len)) {
+                        BIO_puts(bio_err, "Error signing data\n");
+                    } else {
+                        print_out(out, sig, len, sep, binout, sig_name, NULL, file);
+                        ret = EXIT_SUCCESS;
+                    }
+                }
+            } else {
+                BIO_puts(bio_err, "key must be set for one-shot algorithms\n");
+            }
+            munmap(mapped, mapped_len);
+            OPENSSL_free(sig);
+            return ret;
+        }
     }
+#endif
+
+    if (!bio_to_mem(&buf, &buflen, maxlen, in))
+        return ret;
     if (sigin != NULL) {
         res = EVP_DigestVerify(ctx, sigin, siglen, buf, buflen);
         print_verify_result(out, res);
@@ -750,12 +789,12 @@ static int do_fp_oneshot_sign(BIO *out, EVP_MD_CTX *ctx, BIO *in, int sep, int b
         goto end;
     }
     if (key != NULL) {
-        if (EVP_DigestSign(ctx, NULL, &len, buf, buflen) != 1) {
+        if (!EVP_DigestSign(ctx, NULL, &len, buf, buflen)) {
             BIO_puts(bio_err, "Error getting maximum length of signed data\n");
             goto end;
         }
         sig = app_malloc(len, "Signature buffer");
-        if (EVP_DigestSign(ctx, sig, &len, buf, buflen) != 1) {
+        if (!EVP_DigestSign(ctx, sig, &len, buf, buflen)) {
             BIO_puts(bio_err, "Error signing data\n");
             goto end;
         }
@@ -763,7 +802,6 @@ static int do_fp_oneshot_sign(BIO *out, EVP_MD_CTX *ctx, BIO *in, int sep, int b
         ret = EXIT_SUCCESS;
     } else {
         BIO_puts(bio_err, "key must be set for one-shot algorithms\n");
-        goto end;
     }
 
 end:
