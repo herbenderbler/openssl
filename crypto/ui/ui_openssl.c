@@ -453,11 +453,22 @@ static int open_console(UI *ui)
                                 is_a_tty = 0;
                             else
 #endif
-                            {
-                                ERR_raise_data(ERR_LIB_UI, UI_R_UNKNOWN_TTYGET_ERRNO_VALUE,
-                                    "errno=%d", errno);
-                                return 0;
-                            }
+#ifdef EOPNOTSUPP
+                                /*
+                                 * Linux in some CI/non-interactive environments can return
+                                 * EOPNOTSUPP (Operation not supported) from tcgetattr when
+                                 * there is no real TTY.  Treat as not a tty so that -passin
+                                 * and other non-interactive input can be used.
+                                 */
+                                if (errno == EOPNOTSUPP)
+                                    is_a_tty = 0;
+                                else
+#endif
+                                {
+                                    ERR_raise_data(ERR_LIB_UI, UI_R_UNKNOWN_TTYGET_ERRNO_VALUE,
+                                        "errno=%d", errno);
+                                    return 0;
+                                }
     }
 #endif
 #ifdef OPENSSL_SYS_VMS

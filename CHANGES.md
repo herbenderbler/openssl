@@ -31,6 +31,14 @@ OpenSSL Releases
 
 ### Changes between 4.0 and 4.1 [xx XXX xxxx]
 
+ * RFC 3779 API usability: `X509v3_addr_add_prefix()`, `X509v3_addr_add_range()`,
+   and `X509v3_asid_add_id_or_range()` now normalize inverted range bounds (min/max
+   swapped) and reject overlapping ranges or prefixes with an error instead of
+   failing later in `X509v3_addr_canonize()` or `X509v3_asid_canonize()`.
+   On overlap or invalid range, the add functions return 0 and set an error;
+   for `X509v3_asid_add_id_or_range()` the caller retains ownership of the
+   min/max arguments on failure.
+
  * Added AVX2 optimized ML-DSA NTT operations on `x86_64`.
 
    *Marcel Cornu and Tomasz Kantecki*
