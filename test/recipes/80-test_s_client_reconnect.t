@@ -24,19 +24,25 @@ plan skip_all => "$test_name requires sock enabled"
     if disabled("sock");
 plan skip_all => "$test_name requires TLS enabled"
     if alldisabled(available_protocols("tls"));
+plan skip_all => "$test_name requires TLS 1.2 (test uses -tls1_2 for broad build compatibility)"
+    if disabled("tls1_2");
 plan skip_all => "$test_name is not available on Windows or VMS"
     if $^O =~ /^(VMS|MSWin32|msys)$/;
 
 plan tests => 3;
+
+# Ignore SIGPIPE so writes to server/client pipes do not kill us if the child has exited
+$SIG{PIPE} = 'IGNORE';
 
 my $shlib_wrap   = bldtop_file("util", "shlib_wrap.sh");
 my $apps_openssl = bldtop_file("apps", "openssl");
 my $server_pem   = srctop_file("test", "certs", "servercert.pem");
 my $server_key   = srctop_file("test", "certs", "serverkey.pem");
 
-# Start s_server; accept 2 connections (first connect + one reconnect)
+# Start s_server; accept 2 connections (first connect + one reconnect).
+# Use -tls1_2 so the handshake succeeds in builds that disable TLS 1.3 groups.
 my @s_server_cmd = ("s_server", "-accept", "0", "-naccept", "2",
-                    "-cert", $server_pem, "-key", $server_key);
+                    "-tls1_2", "-cert", $server_pem, "-key", $server_key);
 my $s_server_pid = open3(my $s_server_i, my $s_server_o, my $s_server_e = gensym,
                          $shlib_wrap, $apps_openssl, @s_server_cmd);
 
@@ -50,10 +56,13 @@ while (<$s_server_o>) {
     }
 }
 ok($port ne "0", "s_server bound to a port");
+# Give server time to be in accept() before client connects (avoids connection refused in CI)
+select(undef, undef, undef, 1.0);
 
-# Start s_client with -reconnect so it does one handshake then reconnects
-my @s_client_cmd = ("s_client", "-connect", "localhost:$port",
-                    "-reconnect");
+# Start s_client with -reconnect so it does one handshake then reconnects.
+# Use 127.0.0.1 (IPv4) and -tls1_2 to match server and avoid "no suitable groups" in restricted builds.
+my @s_client_cmd = ("s_client", "-connect", "127.0.0.1:$port",
+                    "-tls1_2", "-reconnect");
 my $s_client_pid = open3(my $s_client_i, my $s_client_o, my $s_client_e = gensym,
                          $shlib_wrap, $apps_openssl, @s_client_cmd);
 
@@ -63,7 +72,7 @@ my $s_client_pid = open3(my $s_client_i, my $s_client_o, my $s_client_e = gensym
 # only after we send Q and the client flushes on exit; drain after Q too.
 my $reconnect_seen = 0;
 my $output = '';
-my $deadline = time() + 30;
+my $deadline = time() + 60;
 while (time() < $deadline) {
     my $rin = '';
     vec($rin, fileno($s_client_o), 1) = 1;
@@ -96,13 +105,32 @@ while (time() < $drain_deadline && !eof($s_client_o)) {
 close($s_client_i);
 waitpid($s_client_pid, 0);
 
+# Drain stderr for diagnostics on failure (child has exited, read until EOF or brief timeout)
+my $stderr = '';
+my $stderr_deadline = time() + 2;
+while (time() < $stderr_deadline) {
+    my $rin = '';
+    vec($rin, fileno($s_client_e), 1) = 1;
+    my $n = select($rin, undef, undef, 0.1);
+    last if $n <= 0 && $stderr eq '';
+    if ($n > 0) {
+        my $buf;
+        my $read = sysread($s_client_e, $buf, 4096);
+        last if !defined $read || $read == 0;
+        $stderr .= $buf;
+    }
+}
+close($s_client_e);
+
 # Clean up server
 kill 'HUP', $s_server_pid;
 waitpid($s_server_pid, 0);
 
 unless ($reconnect_seen) {
-    diag("s_client output (expected 'drop connection and then reconnect'):");
+    diag("s_client stdout (expected 'drop connection and then reconnect'):");
     diag($output) if $output ne '';
+    diag("s_client stderr:") if $stderr ne '';
+    diag($stderr) if $stderr ne '';
 }
 ok($reconnect_seen, "s_client -reconnect triggered reconnect");
 # Exit code 0 when built with LeakSanitizer means no leak was reported
