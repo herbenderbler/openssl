@@ -1212,11 +1212,31 @@ const ASN1_INTEGER *X509_get0_authority_serial(const X509 *x)
 
 long X509_get_pathlen(const X509 *x)
 {
-    /* Called for side effect of caching extensions */
-    if (X509_check_purpose(x, -1, 0) != 1
-        || (x->ex_flags & EXFLAG_BCONS) == 0)
-        return -1;
-    return x->ex_pathlen;
+    /*
+     * Ensure extensions are cached (side effect). The cache is populated
+     * even when the cert is invalid; return pathlen whenever Basic
+     * Constraints is present so callers can read the value for display
+     * or other use regardless of overall validity.
+     */
+    (void)X509_check_purpose(x, -1, 0);
+    if ((x->ex_flags & EXFLAG_BCONS) != 0)
+        return x->ex_pathlen;
+    /*
+     * Fallback: read Basic Constraints directly if cache was not populated
+     * (e.g. write lock failure in ossl_x509v3_cache_extensions).
+     */
+    {
+        BASIC_CONSTRAINTS *bs;
+        int crit = -1;
+        long pathlen = -1;
+
+        bs = X509_get_ext_d2i(x, NID_basic_constraints, &crit, NULL);
+        if (bs != NULL && bs->pathlen != NULL
+            && bs->pathlen->type != V_ASN1_NEG_INTEGER)
+            pathlen = ASN1_INTEGER_get(bs->pathlen);
+        BASIC_CONSTRAINTS_free(bs);
+        return pathlen;
+    }
 }
 
 long X509_get_proxy_pathlen(const X509 *x)

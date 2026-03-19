@@ -27,10 +27,37 @@ static int test_pathlen(void)
     BIO *b = NULL;
     long pathlen;
     int ret = 0;
+    int check_ret;
 
     if (!TEST_ptr(b = BIO_new_file(infile, "r"))
-        || !TEST_ptr(x = PEM_read_bio_X509(b, NULL, NULL, NULL))
-        || !TEST_int_eq(pathlen = X509_get_pathlen(x), 6))
+        || !TEST_ptr(x = PEM_read_bio_X509(b, NULL, NULL, NULL)))
+        goto end;
+
+    check_ret = X509_check_purpose(x, -1, 0);
+    pathlen = X509_get_pathlen(x);
+
+    if (pathlen != 6) {
+        BASIC_CONSTRAINTS *bs = NULL;
+        int crit = -1;
+
+        bs = X509_get_ext_d2i(x, NID_basic_constraints, &crit, NULL);
+        if (bs != NULL) {
+            long ext_pathlen = -1;
+            if (bs->pathlen != NULL && bs->pathlen->type != V_ASN1_NEG_INTEGER)
+                ext_pathlen = ASN1_INTEGER_get(bs->pathlen);
+            TEST_info("X509_check_purpose returned %d, pathlen from API %ld, "
+                      "from BasicConstraints pathlen %ld",
+                check_ret, pathlen, ext_pathlen);
+            BASIC_CONSTRAINTS_free(bs);
+        } else {
+            TEST_info("X509_check_purpose returned %d, X509_get_pathlen %ld, "
+                      "Basic Constraints d2i failed",
+                check_ret, pathlen);
+        }
+    }
+    if (pathlen != 6 && check_ret != 1)
+        TEST_info("Certificate considered invalid (X509_check_purpose returned %d)", check_ret);
+    if (!TEST_int_eq(pathlen, 6))
         goto end;
 
     ret = 1;
