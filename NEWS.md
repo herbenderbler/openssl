@@ -27,7 +27,7 @@ OpenSSL 4.0
 
 ### Major changes between OpenSSL 4.0 and OpenSSL 4.1 [under development]
 
-  * none
+  * Fixed verification of DSA certificates signed with SHA-384 or SHA-512.
 
 ### Major changes between OpenSSL 3.6 and OpenSSL 4.0 [under development]
 
