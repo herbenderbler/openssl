@@ -40,10 +40,17 @@ set the read, write or both read and write buffer sizes to B<size>. The initial
 buffer size is DEFAULT_BUFFER_SIZE, currently 4096. Any attempt to reduce the
 buffer size below DEFAULT_BUFFER_SIZE is ignored. Any buffered data is cleared
 when the buffer is resized.
+B<size> must be between 1 and B<INT_MAX> inclusive; otherwise these controls
+fail.
 
 BIO_set_buffer_read_data() clears the read buffer and fills it with B<num>
 bytes of B<buf>. If B<num> is larger than the current buffer size the buffer
 is expanded.
+B<num> must be between 1 and B<INT_MAX> inclusive and B<buf> must not be NULL;
+otherwise the call fails.
+The C<BIO_buffer_peek> macro passes its length argument to L<BIO_ctrl(3)>
+as B<BIO_CTRL_PEEK>; the destination pointer must not be NULL and the length
+must be positive, otherwise 0 is returned without reading from the next BIO.
 
 =head1 NOTES
 
